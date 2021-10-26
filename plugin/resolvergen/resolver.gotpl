@@ -1,12 +1,3 @@
-{{ reserveImport "context"  }}
-{{ reserveImport "fmt"  }}
-{{ reserveImport "io"  }}
-{{ reserveImport "strconv"  }}
-{{ reserveImport "time"  }}
-{{ reserveImport "sync"  }}
-{{ reserveImport "errors"  }}
-{{ reserveImport "bytes"  }}
-
 {{ reserveImport "github.com/vektah/gqlparser/v2" }}
 {{ reserveImport "github.com/vektah/gqlparser/v2/ast" }}
 {{ reserveImport "github.com/99designs/gqlgen/graphql" }}
