@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -140,7 +141,6 @@ func TestWebsocket(t *testing.T) {
 }
 
 func TestWebsocketWithKeepAlive(t *testing.T) {
-
 	h := testserver.New()
 	h.AddTransport(transport.Websocket{
 		KeepAlivePingInterval: 100 * time.Millisecond,
@@ -265,10 +265,127 @@ func TestWebsocketInitFunc(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "ok", resp.Empty)
 	})
+
+	t.Run("can set a deadline on a websocket connection and close it with a reason", func(t *testing.T) {
+		h := testserver.New()
+		var cancel func()
+		h.AddTransport(transport.Websocket{
+			InitFunc: func(ctx context.Context, _ transport.InitPayload) (newCtx context.Context, _ error) {
+				newCtx, cancel = context.WithTimeout(transport.AppendCloseReason(ctx, "beep boop"), time.Millisecond*5)
+				return
+			},
+		})
+		srv := httptest.NewServer(h)
+		defer srv.Close()
+
+		c := wsConnect(srv.URL)
+		require.NoError(t, c.WriteJSON(&operationMessage{Type: connectionInitMsg}))
+		assert.Equal(t, connectionAckMsg, readOp(c).Type)
+		assert.Equal(t, connectionKeepAliveMsg, readOp(c).Type)
+
+		// Cancel should contain an actual value now, so let's call it when we exit this scope (to make the linter happy)
+		defer cancel()
+
+		time.Sleep(time.Millisecond * 10)
+		m := readOp(c)
+		assert.Equal(t, m.Type, connectionErrorMsg)
+		assert.Equal(t, string(m.Payload), `{"message":"beep boop"}`)
+	})
+}
+
+func TestWebsocketGraphqltransportwsSubprotocol(t *testing.T) {
+	handler := testserver.New()
+	handler.AddTransport(transport.Websocket{})
+
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	t.Run("server acks init", func(t *testing.T) {
+		c := wsConnectWithSubprocotol(srv.URL, graphqltransportwsSubprotocol)
+		defer c.Close()
+
+		require.NoError(t, c.WriteJSON(&operationMessage{Type: graphqltransportwsConnectionInitMsg}))
+
+		assert.Equal(t, graphqltransportwsConnectionAckMsg, readOp(c).Type)
+	})
+
+	t.Run("client can receive data", func(t *testing.T) {
+		c := wsConnectWithSubprocotol(srv.URL, graphqltransportwsSubprotocol)
+		defer c.Close()
+
+		require.NoError(t, c.WriteJSON(&operationMessage{Type: graphqltransportwsConnectionInitMsg}))
+		assert.Equal(t, graphqltransportwsConnectionAckMsg, readOp(c).Type)
+
+		require.NoError(t, c.WriteJSON(&operationMessage{
+			Type:    graphqltransportwsSubscribeMsg,
+			ID:      "test_1",
+			Payload: json.RawMessage(`{"query": "subscription { name }"}`),
+		}))
+
+		handler.SendNextSubscriptionMessage()
+		msg := readOp(c)
+		require.Equal(t, graphqltransportwsNextMsg, msg.Type, string(msg.Payload))
+		require.Equal(t, "test_1", msg.ID, string(msg.Payload))
+		require.Equal(t, `{"data":{"name":"test"}}`, string(msg.Payload))
+
+		handler.SendNextSubscriptionMessage()
+		msg = readOp(c)
+		require.Equal(t, graphqltransportwsNextMsg, msg.Type, string(msg.Payload))
+		require.Equal(t, "test_1", msg.ID, string(msg.Payload))
+		require.Equal(t, `{"data":{"name":"test"}}`, string(msg.Payload))
+
+		require.NoError(t, c.WriteJSON(&operationMessage{Type: graphqltransportwsCompleteMsg, ID: "test_1"}))
+
+		msg = readOp(c)
+		require.Equal(t, graphqltransportwsCompleteMsg, msg.Type)
+		require.Equal(t, "test_1", msg.ID)
+	})
+}
+
+func TestWebsocketWithPingPongInterval(t *testing.T) {
+	handler := testserver.New()
+	handler.AddTransport(transport.Websocket{
+		PingPongInterval: time.Second * 1,
+	})
+
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	t.Run("client receives ping and responds with pong", func(t *testing.T) {
+		c := wsConnectWithSubprocotol(srv.URL, graphqltransportwsSubprotocol)
+		defer c.Close()
+
+		require.NoError(t, c.WriteJSON(&operationMessage{Type: graphqltransportwsConnectionInitMsg}))
+		assert.Equal(t, graphqltransportwsConnectionAckMsg, readOp(c).Type)
+
+		assert.Equal(t, graphqltransportwsPingMsg, readOp(c).Type)
+		require.NoError(t, c.WriteJSON(&operationMessage{Type: graphqltransportwsPongMsg}))
+		assert.Equal(t, graphqltransportwsPingMsg, readOp(c).Type)
+	})
+
+	t.Run("client sends ping and expects pong", func(t *testing.T) {
+		c := wsConnectWithSubprocotol(srv.URL, graphqltransportwsSubprotocol)
+		defer c.Close()
+
+		require.NoError(t, c.WriteJSON(&operationMessage{Type: graphqltransportwsConnectionInitMsg}))
+		assert.Equal(t, graphqltransportwsConnectionAckMsg, readOp(c).Type)
+
+		require.NoError(t, c.WriteJSON(&operationMessage{Type: graphqltransportwsPingMsg}))
+		assert.Equal(t, graphqltransportwsPongMsg, readOp(c).Type)
+	})
 }
 
 func wsConnect(url string) *websocket.Conn {
-	c, resp, err := websocket.DefaultDialer.Dial(strings.ReplaceAll(url, "http://", "ws://"), nil)
+	return wsConnectWithSubprocotol(url, "")
+}
+
+func wsConnectWithSubprocotol(url, subprocotol string) *websocket.Conn {
+	h := make(http.Header)
+	if subprocotol != "" {
+		h.Add("Sec-WebSocket-Protocol", subprocotol)
+	}
+
+	c, resp, err := websocket.DefaultDialer.Dial(strings.ReplaceAll(url, "http://", "ws://"), h)
 	if err != nil {
 		panic(err)
 	}
@@ -291,7 +408,7 @@ func readOp(conn *websocket.Conn) operationMessage {
 	return msg
 }
 
-// copied out from weboscket.go to keep these private
+// copied out from websocket_graphqlws.go to keep these private
 
 const (
 	connectionInitMsg      = "connection_init"      // Client -> Server
@@ -304,6 +421,20 @@ const (
 	errorMsg               = "error"                // Server -> Client
 	completeMsg            = "complete"             // Server -> Client
 	connectionKeepAliveMsg = "ka"                   // Server -> Client
+)
+
+// copied out from websocket_graphql_transport_ws.go to keep these private
+
+const (
+	graphqltransportwsSubprotocol = "graphql-transport-ws"
+
+	graphqltransportwsConnectionInitMsg = "connection_init"
+	graphqltransportwsConnectionAckMsg  = "connection_ack"
+	graphqltransportwsSubscribeMsg      = "subscribe"
+	graphqltransportwsNextMsg           = "next"
+	graphqltransportwsCompleteMsg       = "complete"
+	graphqltransportwsPingMsg           = "ping"
+	graphqltransportwsPongMsg           = "pong"
 )
 
 type operationMessage struct {

@@ -44,7 +44,7 @@ go mod tidy
 
 If you want to specify a particular version of gqlgen, you can use `go get`. For example
 ```shell
-go get -d github.com/99designs/gqlgen@v0.14.0
+go get -d github.com/99designs/gqlgen
 ```
 
 ## Building the server
@@ -53,6 +53,7 @@ go get -d github.com/99designs/gqlgen@v0.14.0
 
 ```shell
 go run github.com/99designs/gqlgen init
+printf 'package model' | gofmt > graph/model/doc.go
 ```
 
 This will create our suggested package layout. You can modify these paths in gqlgen.yml if you need to.
@@ -75,7 +76,7 @@ This will create our suggested package layout. You can modify these paths in gql
 
 gqlgen is a schema-first library — before writing code, you describe your API using the GraphQL
 [Schema Definition Language](http://graphql.org/learn/schema/). By default this goes into a file called
-`schema.graphql` but you can break it up into as many different files as you want.
+`schema.graphqls` but you can break it up into as many different files as you want.
 
 The schema that was generated for us was:
 ```graphql
@@ -199,7 +200,7 @@ type Todo struct {
 	ID     string `json:"id"`
 	Text   string `json:"text"`
 	Done   bool   `json:"done"`
-	UserID string `json:"user"`
+	User   *User  `json:"user"`
 }
 ```
 
@@ -209,13 +210,16 @@ type Todo struct {
 
 And run `go run github.com/99designs/gqlgen generate`.
 
+>
+> If you run into this error `package github.com/99designs/gqlgen: no Go files` while executing the `generate` command above, follow the instructions in [this](https://github.com/99designs/gqlgen/issues/800#issuecomment-888908950) comment for a possible solution.
+
 Now if we look in `graph/schema.resolvers.go` we can see a new resolver, lets implement it and fix `CreateTodo`.
 ```go
 func (r *mutationResolver) CreateTodo(ctx context.Context, input model.NewTodo) (*model.Todo, error) {
 	todo := &model.Todo{
 		Text:   input.Text,
 		ID:     fmt.Sprintf("T%d", rand.Int()),
-		UserID: input.UserID, // fix this line
+		User:   &model.User{ID: input.UserID, Name: "user " + input.UserID},
 	}
 	r.todos = append(r.todos, todo)
 	return todo, nil

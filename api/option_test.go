@@ -11,8 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type testPlugin struct {
-}
+type testPlugin struct{}
 
 // Name returns the plugin name
 func (t *testPlugin) Name() string {
@@ -25,7 +24,6 @@ func (t *testPlugin) MutateConfig(_ *config.Config) error {
 }
 
 func TestReplacePlugin(t *testing.T) {
-
 	t.Run("replace plugin if exists", func(t *testing.T) {
 		pg := []plugin.Plugin{
 			federation.New(),
@@ -54,5 +52,17 @@ func TestReplacePlugin(t *testing.T) {
 		require.EqualValues(t, resolvergen.New(), pg[1])
 		require.EqualValues(t, expectedPlugin, pg[2])
 	})
+}
 
+func TestPrependPlugin(t *testing.T) {
+	modelgenPlugin := modelgen.New()
+	pg := []plugin.Plugin{
+		modelgenPlugin,
+	}
+
+	expectedPlugin := &testPlugin{}
+	PrependPlugin(expectedPlugin)(config.DefaultConfig(), &pg)
+
+	require.EqualValues(t, expectedPlugin, pg[0])
+	require.EqualValues(t, modelgenPlugin, pg[1])
 }
