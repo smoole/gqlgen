@@ -3,8 +3,9 @@ package client
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 
 	"github.com/gorilla/websocket"
@@ -45,8 +46,12 @@ func (p *Client) Websocket(query string, options ...Option) *Subscription {
 
 // Grab a single response from a websocket based query
 func (p *Client) WebsocketOnce(query string, resp interface{}, options ...Option) error {
-	sock := p.Websocket(query)
+	sock := p.Websocket(query, options...)
 	defer sock.Close()
+	if reflect.ValueOf(resp).Kind() == reflect.Ptr {
+		return sock.Next(resp)
+	}
+	//TODO: verify this is never called and remove it
 	return sock.Next(&resp)
 }
 
@@ -56,17 +61,18 @@ func (p *Client) WebsocketWithPayload(query string, initPayload map[string]inter
 		return errorSubscription(fmt.Errorf("request: %w", err))
 	}
 
-	requestBody, err := ioutil.ReadAll(r.Body)
+	requestBody, err := io.ReadAll(r.Body)
 	if err != nil {
 		return errorSubscription(fmt.Errorf("parse body: %w", err))
 	}
 
 	srv := httptest.NewServer(p.h)
 	host := strings.ReplaceAll(srv.URL, "http://", "ws://")
-	c, _, err := websocket.DefaultDialer.Dial(host+r.URL.Path, r.Header)
+	c, resp, err := websocket.DefaultDialer.Dial(host+r.URL.Path, r.Header)
 	if err != nil {
 		return errorSubscription(fmt.Errorf("dial: %w", err))
 	}
+	defer resp.Body.Close()
 
 	initMessage := operationMessage{Type: connectionInitMsg}
 	if initPayload != nil {
@@ -108,32 +114,38 @@ func (p *Client) WebsocketWithPayload(query string, initPayload map[string]inter
 			return c.Close()
 		},
 		Next: func(response interface{}) error {
-			var op operationMessage
-			err := c.ReadJSON(&op)
-			if err != nil {
-				return err
-			}
-			if op.Type != dataMsg {
-				if op.Type == errorMsg {
+			for {
+				var op operationMessage
+				err := c.ReadJSON(&op)
+				if err != nil {
+					return err
+				}
+
+				switch op.Type {
+				case dataMsg:
+					break
+				case connectionKaMsg:
+					continue
+				case errorMsg:
 					return fmt.Errorf(string(op.Payload))
-				} else {
+				default:
 					return fmt.Errorf("expected data message, got %#v", op)
 				}
-			}
 
-			var respDataRaw Response
-			err = json.Unmarshal(op.Payload, &respDataRaw)
-			if err != nil {
-				return fmt.Errorf("decode: %w", err)
-			}
+				var respDataRaw Response
+				err = json.Unmarshal(op.Payload, &respDataRaw)
+				if err != nil {
+					return fmt.Errorf("decode: %w", err)
+				}
 
-			// we want to unpack even if there is an error, so we can see partial responses
-			unpackErr := unpack(respDataRaw.Data, response)
+				// we want to unpack even if there is an error, so we can see partial responses
+				unpackErr := unpack(respDataRaw.Data, response)
 
-			if respDataRaw.Errors != nil {
-				return RawJsonError{respDataRaw.Errors}
+				if respDataRaw.Errors != nil {
+					return RawJsonError{respDataRaw.Errors}
+				}
+				return unpackErr
 			}
-			return unpackErr
 		},
 	}
 }

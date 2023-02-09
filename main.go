@@ -2,11 +2,12 @@ package main
 
 import (
 	"bytes"
+	_ "embed"
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"io/fs"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -19,101 +20,17 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
-var configTemplate = template.Must(template.New("name").Parse(
-	`# Where are all the schema files located? globs are supported eg  src/**/*.graphqls
-schema:
-  - graph/*.graphqls
+//go:embed init-templates/schema.graphqls
+var schemaFileContent string
 
-# Where should the generated server code go?
-exec:
-  filename: graph/generated/generated.go
-  package: generated
+//go:embed init-templates/gqlgen.yml.gotmpl
+var configFileTemplate string
 
-# Uncomment to enable federation
-# federation:
-#   filename: graph/generated/federation.go
-#   package: generated
-
-# Where should any generated models go?
-model:
-  filename: graph/model/models_gen.go
-  package: model
-
-# Where should the resolver implementations go?
-resolver:
-  layout: follow-schema
-  dir: graph
-  package: graph
-
-# Optional: turn on use ` + "`" + `gqlgen:"fieldName"` + "`" + ` tags in your models
-# struct_tag: json
-
-# Optional: turn on to use []Thing instead of []*Thing
-# omit_slice_element_pointers: false
-
-# Optional: set to speed up generation time by not performing a final validation pass.
-# skip_validation: true
-
-# gqlgen will search for any type names in the schema in these go packages
-# if they match it will use them, otherwise it will generate them.
-autobind:
-#  - "{{.}}/graph/model"
-
-# This section declares type mapping between the GraphQL and go type systems
-#
-# The first line in each type will be used as defaults for resolver arguments and
-# modelgen, the others will be allowed when binding to fields. Configure them to
-# your liking
-models:
-  ID:
-    model:
-      - github.com/99designs/gqlgen/graphql.ID
-      - github.com/99designs/gqlgen/graphql.Int
-      - github.com/99designs/gqlgen/graphql.Int64
-      - github.com/99designs/gqlgen/graphql.Int32
-  Int:
-    model:
-      - github.com/99designs/gqlgen/graphql.Int
-      - github.com/99designs/gqlgen/graphql.Int64
-      - github.com/99designs/gqlgen/graphql.Int32
-`))
-
-var schemaDefault = `# GraphQL schema example
-#
-# https://gqlgen.com/getting-started/
-
-type Todo {
-  id: ID!
-  text: String!
-  done: Boolean!
-  user: User!
-}
-
-type User {
-  id: ID!
-  name: String!
-}
-
-type Query {
-  todos: [Todo!]!
-}
-
-input NewTodo {
-  text: String!
-  userId: String!
-}
-
-type Mutation {
-  createTodo(input: NewTodo!): Todo!
-}
-`
-
-func executeConfigTemplate(pkgName string) string {
+func getConfigFileContent(pkgName string) string {
 	var buf bytes.Buffer
-	if err := configTemplate.Execute(&buf, pkgName); err != nil {
+	if err := template.Must(template.New("gqlgen.yml").Parse(configFileTemplate)).Execute(&buf, pkgName); err != nil {
 		panic(err)
 	}
-
 	return buf.String()
 }
 
@@ -122,11 +39,33 @@ func fileExists(filename string) bool {
 	return !errors.Is(err, fs.ErrNotExist)
 }
 
+// see Go source code:
+// https://github.com/golang/go/blob/f57ebed35132d02e5cf016f324853217fb545e91/src/cmd/go/internal/modload/init.go#L1283
+func findModuleRoot(dir string) (roots string) {
+	if dir == "" {
+		panic("dir not set")
+	}
+	dir = filepath.Clean(dir)
+
+	// Look for enclosing go.mod.
+	for {
+		if fi, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil && !fi.IsDir() {
+			return dir
+		}
+		d := filepath.Dir(dir)
+		if d == dir { // the parent of the root is itself, so we can go no further
+			break
+		}
+		dir = d
+	}
+	return ""
+}
+
 func initFile(filename, contents string) error {
 	if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {
 		return fmt.Errorf("unable to create directory for file '%s': %w\n", filename, err)
 	}
-	if err := ioutil.WriteFile(filename, []byte(contents), 0o644); err != nil {
+	if err := os.WriteFile(filename, []byte(contents), 0o644); err != nil {
 		return fmt.Errorf("unable to write file '%s': %w\n", filename, err)
 	}
 
@@ -139,17 +78,36 @@ var initCmd = &cli.Command{
 	Flags: []cli.Flag{
 		&cli.BoolFlag{Name: "verbose, v", Usage: "show logs"},
 		&cli.StringFlag{Name: "config, c", Usage: "the config filename", Value: "gqlgen.yml"},
-		&cli.StringFlag{Name: "server", Usage: "where to write the server stub to", Value: "server.go"},
-		&cli.StringFlag{Name: "schema", Usage: "where to write the schema stub to", Value: "graph/schema.graphqls"},
+		&cli.StringFlag{
+			Name:  "server",
+			Usage: "where to write the server stub to",
+			Value: "server.go",
+		},
+		&cli.StringFlag{
+			Name:  "schema",
+			Usage: "where to write the schema stub to",
+			Value: "graph/schema.graphqls",
+		},
 	},
 	Action: func(ctx *cli.Context) error {
 		configFilename := ctx.String("config")
 		serverFilename := ctx.String("server")
 		schemaFilename := ctx.String("schema")
 
-		pkgName := code.ImportPathForDir(".")
+		cwd, err := os.Getwd()
+		if err != nil {
+			log.Println(err)
+			return fmt.Errorf("unable to determine current directory:%w", err)
+		}
+		pkgName := code.ImportPathForDir(cwd)
 		if pkgName == "" {
-			return fmt.Errorf("unable to determine import path for current directory, you probably need to run go mod init first")
+			return fmt.Errorf(
+				"unable to determine import path for current directory, you probably need to run 'go mod init' first",
+			)
+		}
+		modRoot := findModuleRoot(cwd)
+		if modRoot == "" {
+			return fmt.Errorf("go.mod is missing. Please, do 'go mod init' first\n")
 		}
 
 		// check schema and config don't already exist
@@ -158,20 +116,21 @@ var initCmd = &cli.Command{
 				return fmt.Errorf("%s already exists", filename)
 			}
 		}
-		_, err := config.LoadConfigFromDefaultLocations()
+		_, err = config.LoadConfigFromDefaultLocations()
 		if err == nil {
 			return fmt.Errorf("gqlgen.yml already exists in a parent directory\n")
 		}
 
 		// create config
 		fmt.Println("Creating", configFilename)
-		if err := initFile(configFilename, executeConfigTemplate(pkgName)); err != nil {
+		if err := initFile(configFilename, getConfigFileContent(pkgName)); err != nil {
 			return err
 		}
 
 		// create schema
 		fmt.Println("Creating", schemaFilename)
-		if err := initFile(schemaFilename, schemaDefault); err != nil {
+
+		if err := initFile(schemaFilename, schemaFileContent); err != nil {
 			return err
 		}
 
@@ -191,7 +150,7 @@ var initCmd = &cli.Command{
 		fmt.Println("Creating", serverFilename)
 		fmt.Println("Generating...")
 		if err := api.Generate(cfg, api.AddPlugin(servergen.New(serverFilename))); err != nil {
-			fmt.Fprintln(os.Stderr, err.Error())
+			return err
 		}
 
 		fmt.Printf("\nExec \"go run ./%s\" to start GraphQL server\n", serverFilename)
@@ -253,7 +212,7 @@ func main() {
 		if context.Bool("verbose") {
 			log.SetFlags(0)
 		} else {
-			log.SetOutput(ioutil.Discard)
+			log.SetOutput(io.Discard)
 		}
 		return nil
 	}

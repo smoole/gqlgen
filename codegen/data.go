@@ -2,7 +2,10 @@ package codegen
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/vektah/gqlparser/v2/ast"
 
@@ -30,6 +33,27 @@ type Data struct {
 	QueryRoot        *Object
 	MutationRoot     *Object
 	SubscriptionRoot *Object
+	AugmentedSources []AugmentedSource
+	Plugins          []interface{}
+}
+
+func (d *Data) HasEmbeddableSources() bool {
+	hasEmbeddableSources := false
+	for _, s := range d.AugmentedSources {
+		if s.Embeddable {
+			hasEmbeddableSources = true
+		}
+	}
+	return hasEmbeddableSources
+}
+
+// AugmentedSource contains extra information about graphql schema files which is not known directly from the Config.Sources data
+type AugmentedSource struct {
+	// path relative to Config.Exec.Filename
+	RelativePath string
+	Embeddable   bool
+	BuiltIn      bool
+	Source       string
 }
 
 type builder struct {
@@ -53,7 +77,7 @@ func (d *Data) Directives() DirectiveList {
 	return res
 }
 
-func BuildData(cfg *config.Config) (*Data, error) {
+func BuildData(cfg *config.Config, plugins ...interface{}) (*Data, error) {
 	// We reload all packages to allow packages to be compared correctly.
 	cfg.ReloadAllPackages()
 
@@ -82,6 +106,7 @@ func BuildData(cfg *config.Config) (*Data, error) {
 		AllDirectives: dataDirectives,
 		Schema:        b.Schema,
 		Interfaces:    map[string]*Interface{},
+		Plugins:       plugins,
 	}
 
 	for _, schemaType := range b.Schema.Types {
@@ -147,6 +172,31 @@ func BuildData(cfg *config.Config) (*Data, error) {
 		// otherwise show a generic error message
 		return nil, fmt.Errorf("invalid types were encountered while traversing the go source code, this probably means the invalid code generated isnt correct. add try adding -v to debug")
 	}
+	aSources := []AugmentedSource{}
+	for _, s := range cfg.Sources {
+		wd, err := os.Getwd()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get working directory: %w", err)
+		}
+		outputDir := cfg.Exec.Dir()
+		sourcePath := filepath.Join(wd, s.Name)
+		relative, err := filepath.Rel(outputDir, sourcePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to compute path of %s relative to %s: %w", sourcePath, outputDir, err)
+		}
+		relative = filepath.ToSlash(relative)
+		embeddable := true
+		if strings.HasPrefix(relative, "..") || s.BuiltIn {
+			embeddable = false
+		}
+		aSources = append(aSources, AugmentedSource{
+			RelativePath: relative,
+			Embeddable:   embeddable,
+			BuiltIn:      s.BuiltIn,
+			Source:       s.Input,
+		})
+	}
+	s.AugmentedSources = aSources
 
 	return &s, nil
 }

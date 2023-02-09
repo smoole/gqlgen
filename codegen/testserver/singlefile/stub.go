@@ -28,9 +28,10 @@ type Stub struct {
 		ResolverField func(ctx context.Context, obj *ModelMethods) (bool, error)
 	}
 	MutationResolver struct {
-		DefaultInput    func(ctx context.Context, input DefaultInput) (*DefaultParametersMirror, error)
-		UpdateSomething func(ctx context.Context, input SpecialInput) (string, error)
-		UpdatePtrToPtr  func(ctx context.Context, input UpdatePtrToPtrOuter) (*PtrToPtrOuter, error)
+		DefaultInput          func(ctx context.Context, input DefaultInput) (*DefaultParametersMirror, error)
+		OverrideValueViaInput func(ctx context.Context, input FieldsOrderInput) (*FieldsOrderPayload, error)
+		UpdateSomething       func(ctx context.Context, input SpecialInput) (string, error)
+		UpdatePtrToPtr        func(ctx context.Context, input UpdatePtrToPtrOuter) (*PtrToPtrOuter, error)
 	}
 	OverlappingFieldsResolver struct {
 		OldFoo func(ctx context.Context, obj *OverlappingFields) (int, error)
@@ -38,6 +39,9 @@ type Stub struct {
 	PanicsResolver struct {
 		FieldScalarMarshal func(ctx context.Context, obj *Panics) ([]MarshalPanic, error)
 		ArgUnmarshal       func(ctx context.Context, obj *Panics, u []MarshalPanic) (bool, error)
+	}
+	PetResolver struct {
+		Friends func(ctx context.Context, obj *Pet, limit *int) ([]*Pet, error)
 	}
 	PrimitiveResolver struct {
 		Value func(ctx context.Context, obj *Primitive) (int, error)
@@ -84,6 +88,7 @@ type Stub struct {
 		NoShapeTypedNil                  func(ctx context.Context) (Shape, error)
 		Animal                           func(ctx context.Context) (Animal, error)
 		NotAnInterface                   func(ctx context.Context) (BackedByInterface, error)
+		Dog                              func(ctx context.Context) (*Dog, error)
 		Issue896a                        func(ctx context.Context) ([]*CheckIssue896, error)
 		MapStringInterface               func(ctx context.Context, in map[string]interface{}) (map[string]interface{}, error)
 		MapNestedStringInterface         func(ctx context.Context, in *NestedMapInput) (map[string]interface{}, error)
@@ -107,6 +112,7 @@ type Stub struct {
 		VOkCaseValue                     func(ctx context.Context) (*VOkCaseValue, error)
 		VOkCaseNil                       func(ctx context.Context) (*VOkCaseNil, error)
 		ValidType                        func(ctx context.Context) (*ValidType, error)
+		VariadicModel                    func(ctx context.Context) (*VariadicModel, error)
 		WrappedStruct                    func(ctx context.Context) (*WrappedStruct, error)
 		WrappedScalar                    func(ctx context.Context) (otherpkg.Scalar, error)
 		WrappedMap                       func(ctx context.Context) (WrappedMap, error)
@@ -120,15 +126,21 @@ type Stub struct {
 		DirectiveDouble        func(ctx context.Context) (<-chan *string, error)
 		DirectiveUnimplemented func(ctx context.Context) (<-chan *string, error)
 		Issue896b              func(ctx context.Context) (<-chan []*CheckIssue896, error)
+		ErrorRequired          func(ctx context.Context) (<-chan *Error, error)
 	}
 	UserResolver struct {
 		Friends func(ctx context.Context, obj *User) ([]*User, error)
+		Pets    func(ctx context.Context, obj *User, limit *int) ([]*Pet, error)
 	}
 	WrappedMapResolver struct {
 		Get func(ctx context.Context, obj WrappedMap, key string) (string, error)
 	}
 	WrappedSliceResolver struct {
 		Get func(ctx context.Context, obj WrappedSlice, idx int) (string, error)
+	}
+
+	FieldsOrderInputResolver struct {
+		OverrideFirstField func(ctx context.Context, obj *FieldsOrderInput, data *string) error
 	}
 }
 
@@ -153,6 +165,9 @@ func (r *Stub) OverlappingFields() OverlappingFieldsResolver {
 func (r *Stub) Panics() PanicsResolver {
 	return &stubPanics{r}
 }
+func (r *Stub) Pet() PetResolver {
+	return &stubPet{r}
+}
 func (r *Stub) Primitive() PrimitiveResolver {
 	return &stubPrimitive{r}
 }
@@ -173,6 +188,10 @@ func (r *Stub) WrappedMap() WrappedMapResolver {
 }
 func (r *Stub) WrappedSlice() WrappedSliceResolver {
 	return &stubWrappedSlice{r}
+}
+
+func (r *Stub) FieldsOrderInput() FieldsOrderInputResolver {
+	return &stubFieldsOrderInput{r}
 }
 
 type stubBackedByInterface struct{ *Stub }
@@ -216,6 +235,9 @@ type stubMutation struct{ *Stub }
 func (r *stubMutation) DefaultInput(ctx context.Context, input DefaultInput) (*DefaultParametersMirror, error) {
 	return r.MutationResolver.DefaultInput(ctx, input)
 }
+func (r *stubMutation) OverrideValueViaInput(ctx context.Context, input FieldsOrderInput) (*FieldsOrderPayload, error) {
+	return r.MutationResolver.OverrideValueViaInput(ctx, input)
+}
 func (r *stubMutation) UpdateSomething(ctx context.Context, input SpecialInput) (string, error) {
 	return r.MutationResolver.UpdateSomething(ctx, input)
 }
@@ -236,6 +258,12 @@ func (r *stubPanics) FieldScalarMarshal(ctx context.Context, obj *Panics) ([]Mar
 }
 func (r *stubPanics) ArgUnmarshal(ctx context.Context, obj *Panics, u []MarshalPanic) (bool, error) {
 	return r.PanicsResolver.ArgUnmarshal(ctx, obj, u)
+}
+
+type stubPet struct{ *Stub }
+
+func (r *stubPet) Friends(ctx context.Context, obj *Pet, limit *int) ([]*Pet, error) {
+	return r.PetResolver.Friends(ctx, obj, limit)
 }
 
 type stubPrimitive struct{ *Stub }
@@ -366,6 +394,9 @@ func (r *stubQuery) Animal(ctx context.Context) (Animal, error) {
 func (r *stubQuery) NotAnInterface(ctx context.Context) (BackedByInterface, error) {
 	return r.QueryResolver.NotAnInterface(ctx)
 }
+func (r *stubQuery) Dog(ctx context.Context) (*Dog, error) {
+	return r.QueryResolver.Dog(ctx)
+}
 func (r *stubQuery) Issue896a(ctx context.Context) ([]*CheckIssue896, error) {
 	return r.QueryResolver.Issue896a(ctx)
 }
@@ -435,6 +466,9 @@ func (r *stubQuery) VOkCaseNil(ctx context.Context) (*VOkCaseNil, error) {
 func (r *stubQuery) ValidType(ctx context.Context) (*ValidType, error) {
 	return r.QueryResolver.ValidType(ctx)
 }
+func (r *stubQuery) VariadicModel(ctx context.Context) (*VariadicModel, error) {
+	return r.QueryResolver.VariadicModel(ctx)
+}
 func (r *stubQuery) WrappedStruct(ctx context.Context) (*WrappedStruct, error) {
 	return r.QueryResolver.WrappedStruct(ctx)
 }
@@ -471,11 +505,17 @@ func (r *stubSubscription) DirectiveUnimplemented(ctx context.Context) (<-chan *
 func (r *stubSubscription) Issue896b(ctx context.Context) (<-chan []*CheckIssue896, error) {
 	return r.SubscriptionResolver.Issue896b(ctx)
 }
+func (r *stubSubscription) ErrorRequired(ctx context.Context) (<-chan *Error, error) {
+	return r.SubscriptionResolver.ErrorRequired(ctx)
+}
 
 type stubUser struct{ *Stub }
 
 func (r *stubUser) Friends(ctx context.Context, obj *User) ([]*User, error) {
 	return r.UserResolver.Friends(ctx, obj)
+}
+func (r *stubUser) Pets(ctx context.Context, obj *User, limit *int) ([]*Pet, error) {
+	return r.UserResolver.Pets(ctx, obj, limit)
 }
 
 type stubWrappedMap struct{ *Stub }
@@ -488,4 +528,10 @@ type stubWrappedSlice struct{ *Stub }
 
 func (r *stubWrappedSlice) Get(ctx context.Context, obj WrappedSlice, idx int) (string, error) {
 	return r.WrappedSliceResolver.Get(ctx, obj, idx)
+}
+
+type stubFieldsOrderInput struct{ *Stub }
+
+func (r *stubFieldsOrderInput) OverrideFirstField(ctx context.Context, obj *FieldsOrderInput, data *string) error {
+	return r.FieldsOrderInputResolver.OverrideFirstField(ctx, obj, data)
 }

@@ -1,22 +1,37 @@
-# source: http://localhost:8080/query
-# timestamp: Mon Dec 06 2021 17:56:42 GMT+0000 (Greenwich Mean Time)
-
 """This directive does magical things"""
 directive @magic(kind: Int) on FIELD_DEFINITION
 
 enum DATE_FILTER_OP {
   EQ
-  NEQ
   GT
   GTE
   LT
   LTE
+  NEQ
 }
 
 input DateFilter {
-  value: String!
-  timezone: String = "UTC"
   op: DATE_FILTER_OP = EQ
+  timezone: String = "UTC"
+  value: String!
+}
+
+type DefinedTypeFromBasics {
+  newBool: Boolean!
+  newFloat32: Float32!
+  newFloat64: Float!
+  newID: ID!
+  newInt: Int!
+  newInt8: Int!
+  newInt16: Int!
+  newInt32: Int!
+  newInt64: Int!
+  newString: String!
+  newUint: Int!
+  newUint8: Int!
+  newUint16: Int!
+  newUint32: Int!
+  newUint64: Uint64!
 }
 
 type Element {
@@ -30,28 +45,36 @@ enum ErrorType {
   NORMAL
 }
 
+scalar Float32
+
 input ListCoercion {
   enumVal: [ErrorType]
-  strVal: [String]
   intVal: [Int]
   scalarVal: [Map]
+  strVal: [String]
 }
 
 scalar Map
 
 type Query {
-  path: [Element]
-  date(filter: DateFilter!): Boolean!
-  viewer: Viewer
-  jsonEncoding: String!
-  error(type: ErrorType = NORMAL): Boolean!
-  complexity(value: Int!): Boolean!
   coercion(value: [ListCoercion!]): Boolean!
+  complexity(value: Int!): Boolean!
+  date(filter: DateFilter!): Boolean!
+  error(type: ErrorType = NORMAL): Boolean!
+  jsonEncoding: String!
+  path: [Element]
+  viewer: Viewer
 }
 
+type RemoteModelWithOmitempty {
+  newDesc: String
+}
+
+scalar Uint64
+
 type User {
-  name: String!
   likes: [String!]!
+  name: String!
 }
 
 type Viewer {

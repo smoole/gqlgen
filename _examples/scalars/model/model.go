@@ -12,7 +12,12 @@ import (
 	"github.com/99designs/gqlgen/graphql"
 )
 
-type Banned bool
+type (
+	Banned      bool
+	LoginBanned bool
+	QueryBanned = bool
+	Sum         uint16 // local named uint16
+)
 
 func (b Banned) MarshalGQL(w io.Writer) {
 	if b {
@@ -36,15 +41,26 @@ func (b *Banned) UnmarshalGQL(v interface{}) error {
 }
 
 type User struct {
-	ID       external.ObjectID
-	Name     string
-	Created  time.Time  // direct binding to builtin types with external Marshal/Unmarshal methods
-	Modified *time.Time // direct binding to builtin types with external Marshal/Unmarshal methods
-	ValPrefs Prefs      // external un/marshal that act on pointers
-	PtrPrefs *Prefs
-	IsBanned Banned
-	Address  Address
-	Tier     Tier
+	ID              external.ObjectID
+	Name            string
+	Created         time.Time  // direct binding to builtin types with external Marshal/Unmarshal methods
+	Modified        *time.Time // direct binding to builtin types with external Marshal/Unmarshal methods
+	ValPrefs        Prefs      // external un/marshal that act on pointers
+	PtrPrefs        *Prefs
+	IsBanned        Banned
+	IsLoginBanned   LoginBanned
+	IsQueryBanned   QueryBanned
+	Address         Address
+	Tier            Tier
+	CarManufacturer external.Manufacturer
+	Children        uint
+	Cars            external.Count
+	Weddings        Sum
+	SomeBytes       []byte
+	SomeOtherBytes  []byte
+	SomeRunes       []rune
+	RemoteBytes     external.ExternalBytes
+	RemoteRunes     external.ExternalRunes
 }
 
 // Point is serialized as a simple array, eg [1, 2]
@@ -192,4 +208,23 @@ func UnmarshalPreferences(v interface{}) (*Prefs, error) {
 		return nil, err
 	}
 	return &Prefs{DarkMode: tmp}, nil
+}
+
+func MarshalRunes(r []rune) graphql.Marshaler {
+	return graphql.WriterFunc(func(w io.Writer) {
+		_, _ = fmt.Fprintf(w, "%q", string(r))
+	})
+}
+
+func UnmarshalRunes(v interface{}) ([]rune, error) {
+	switch v := v.(type) {
+	case string:
+		return []rune(v), nil
+	case *string:
+		return []rune(*v), nil
+	case []rune:
+		return v, nil
+	default:
+		return nil, fmt.Errorf("%T is not []rune", v)
+	}
 }

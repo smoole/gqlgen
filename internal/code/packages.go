@@ -17,7 +17,8 @@ var mode = packages.NeedName |
 	packages.NeedTypes |
 	packages.NeedSyntax |
 	packages.NeedTypesInfo |
-	packages.NeedModule
+	packages.NeedModule |
+	packages.NeedDeps
 
 // Packages is a wrapper around x/tools/go/packages that maintains a (hopefully prewarmed) cache of packages
 // that can be invalidated as writes are made and packages are known to change.
@@ -35,15 +36,6 @@ type Packages struct {
 func (p *Packages) ReloadAll(importPaths ...string) []*packages.Package {
 	p.packages = nil
 	return p.LoadAll(importPaths...)
-}
-
-func (p *Packages) checkModuleLoaded(pkgs []*packages.Package) bool {
-	for i := range pkgs {
-		if pkgs[i] == nil || pkgs[i].Module == nil {
-			return false
-		}
-	}
-	return true
 }
 
 // LoadAll will call packages.Load and return the package data for the given packages,
@@ -64,13 +56,6 @@ func (p *Packages) LoadAll(importPaths ...string) []*packages.Package {
 	if len(missing) > 0 {
 		p.numLoadCalls++
 		pkgs, err := packages.Load(&packages.Config{Mode: mode}, missing...)
-
-		// Sometimes packages.Load not loaded the module info. Call it again to reload it.
-		if !p.checkModuleLoaded(pkgs) {
-			fmt.Println("reloading module info")
-			pkgs, err = packages.Load(&packages.Config{Mode: mode}, missing...)
-		}
-
 		if err != nil {
 			p.loadErrors = append(p.loadErrors, err)
 		}
@@ -150,7 +135,7 @@ func (p *Packages) NameForPackage(importPath string) string {
 	pkg := p.packages[importPath]
 
 	if pkg == nil {
-		// otherwise do a name only lookup for it but dont put it in the package cache.
+		// otherwise do a name only lookup for it but don't put it in the package cache.
 		p.numNameCalls++
 		pkgs, err := packages.Load(&packages.Config{Mode: packages.NeedName}, importPath)
 		if err != nil {

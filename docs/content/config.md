@@ -23,8 +23,8 @@ exec:
 
 # Enable Apollo federation support
 federation:
-  filename: graph/generated/federation.go
-  package: generated
+  filename: graph/federation.go
+  package: graph
 
 # Where should any generated models go?
 model:
@@ -43,6 +43,19 @@ resolver:
 
 # Optional: turn on to use []Thing instead of []*Thing
 # omit_slice_element_pointers: false
+
+# Optional: turn on to skip generation of ComplexityRoot struct content and Complexity function
+# omit_complexity: false
+
+# Optional: turn off to make struct-type struct fields not use pointers
+# e.g. type Thing struct { FieldA OtherThing } instead of { FieldA *OtherThing }
+# struct_fields_always_pointers: true
+
+# Optional: turn off to make resolvers return values instead of pointers for structs
+# resolvers_always_return_pointers: true
+
+# Optional: turn on to return pointers instead of values in unmarshalInput
+# return_pointers_in_unmarshalinput: false
 
 # Optional: set to speed up generation time by not performing a final validation pass.
 # skip_validation: true
@@ -116,7 +129,7 @@ type User @goModel(model: "github.com/my/app/models.User") {
 }
 ```
 
-The builtin directives `goField`, `goModel` and `goTag` are automatically registered to `skip_runtime`. Any directives registered as `skip_runtime` will not exposed during introspection and are used during code generation only. 
+The builtin directives `goField`, `goModel` and `goTag` are automatically registered to `skip_runtime`. Any directives registered as `skip_runtime` will not exposed during introspection and are used during code generation only.
 
 If you have created a new code generation plugin using a directive which does not require runtime execution, the directive will need to be set to `skip_runtime`.
 

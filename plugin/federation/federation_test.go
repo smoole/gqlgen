@@ -116,6 +116,25 @@ func TestCodeGeneration(t *testing.T) {
 	require.NoError(t, f.GenerateCode(data))
 }
 
+func TestCodeGenerationFederation2(t *testing.T) {
+	f, cfg := load(t, "testdata/federation2/federation2.yml")
+	err := f.MutateConfig(cfg)
+
+	require.NoError(t, err)
+	require.Equal(t, "ExternalExtension", f.Entities[0].Name)
+	require.Len(t, f.Entities[0].Resolvers, 1)
+	require.Equal(t, "Hello", f.Entities[1].Name)
+	require.Empty(t, f.Entities[1].Resolvers)
+	require.Equal(t, "World", f.Entities[2].Name)
+	require.Empty(t, f.Entities[2].Resolvers)
+
+	data, err := codegen.BuildData(cfg)
+	if err != nil {
+		panic(err)
+	}
+	require.NoError(t, f.GenerateCode(data))
+}
+
 func TestInjectSourceLate(t *testing.T) {
 	_, cfg := load(t, "testdata/allthethings/gqlgen.yml")
 	entityGraphqlGenerated := false
@@ -162,7 +181,11 @@ func load(t *testing.T, name string) (*federation, *config.Config) {
 	cfg, err := config.LoadConfig(name)
 	require.NoError(t, err)
 
-	f := &federation{}
+	if cfg.Federation.Version == 0 {
+		cfg.Federation.Version = 1
+	}
+
+	f := &federation{Version: cfg.Federation.Version}
 	cfg.Sources = append(cfg.Sources, f.InjectSourceEarly())
 	require.NoError(t, cfg.LoadSchema())
 

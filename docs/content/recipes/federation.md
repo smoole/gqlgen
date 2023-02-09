@@ -15,8 +15,19 @@ Uncomment federation configuration in your `gqlgen.yml`
 ```yml
 # Uncomment to enable federation
 federation:
-  filename: graph/generated/federation.go
-  package: generated
+  filename: graph/federation.go
+  package: graph
+```
+
+### Federation 2
+
+If you are using Apollo's Federation 2 standard, your schema should automatically be upgraded so long as you include the required `@link` directive within your schema. If you want to force Federation 2 composition, the `federation` configuration supports a `version` flag to override that. For example:
+
+```yml
+federation:
+  filename: graph/federation.go
+  package: graph
+  version: 2
 ```
 
 ## Create the federated servers
@@ -36,12 +47,12 @@ type Review {
 }
 
 extend type User @key(fields: "id") {
-  id: ID! @external
+  id: ID! @external # External directive not required for key fields in federation v2
   reviews: [Review]
 }
 
 extend type Product @key(fields: "upc") {
-  upc: String! @external
+  upc: String! @external # External directive not required for key fields in federation v2
   reviews: [Review]
 }
 ```

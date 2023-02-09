@@ -10,10 +10,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestExtractModuleName(t *testing.T) {
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+
+	modDir := filepath.Join(wd, "..", "..", "testdata")
+	content, err := os.ReadFile(filepath.Join(modDir, "gomod-with-leading-comments.mod"))
+	require.NoError(t, err)
+	assert.Equal(t, "github.com/99designs/gqlgen", extractModuleName(content))
+}
+
 func TestImportPathForDir(t *testing.T) {
 	wd, err := os.Getwd()
 
 	require.NoError(t, err)
+
+	assert.Equal(t, "github.com/99designs/gqlgen/internal/code", ImportPathForDir(wd))
 
 	assert.Equal(t, "github.com/99designs/gqlgen/internal/code", ImportPathForDir(wd))
 	assert.Equal(t, "github.com/99designs/gqlgen/api", ImportPathForDir(filepath.Join(wd, "..", "..", "api")))
@@ -40,6 +52,6 @@ func TestNameForDir(t *testing.T) {
 
 	assert.Equal(t, "tmp", NameForDir("/tmp"))
 	assert.Equal(t, "code", NameForDir(wd))
-	assert.Equal(t, "internal", NameForDir(wd+"/.."))
+	assert.Equal(t, "docs", NameForDir(wd+"/../../docs"))
 	assert.Equal(t, "main", NameForDir(wd+"/../.."))
 }

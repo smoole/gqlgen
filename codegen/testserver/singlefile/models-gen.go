@@ -11,6 +11,8 @@ import (
 
 type Animal interface {
 	IsAnimal()
+	GetSpecies() string
+	GetSize() *Size
 }
 
 type ContentChild interface {
@@ -43,10 +45,13 @@ func (B) IsTestUnion() {}
 
 type Cat struct {
 	Species  string `json:"species"`
+	Size     *Size  `json:"size"`
 	CatBreed string `json:"catBreed"`
 }
 
-func (Cat) IsAnimal() {}
+func (Cat) IsAnimal()               {}
+func (this Cat) GetSpecies() string { return this.Species }
+func (this Cat) GetSize() *Size     { return this.Size }
 
 type CheckIssue896 struct {
 	ID *int `json:"id"`
@@ -81,13 +86,20 @@ type DefaultParametersMirror struct {
 
 type Dog struct {
 	Species  string `json:"species"`
+	Size     *Size  `json:"size"`
 	DogBreed string `json:"dogBreed"`
 }
 
-func (Dog) IsAnimal() {}
+func (Dog) IsAnimal()               {}
+func (this Dog) GetSpecies() string { return this.Species }
+func (this Dog) GetSize() *Size     { return this.Size }
 
 type EmbeddedDefaultScalar struct {
 	Value *string `json:"value"`
+}
+
+type FieldsOrderPayload struct {
+	FirstFieldValue *string `json:"firstFieldValue"`
 }
 
 type InnerDirectives struct {
@@ -150,6 +162,16 @@ type OuterObject struct {
 	Inner *InnerObject `json:"inner"`
 }
 
+type Pet struct {
+	ID      int    `json:"id"`
+	Friends []*Pet `json:"friends"`
+}
+
+type Size struct {
+	Height int `json:"height"`
+	Weight int `json:"weight"`
+}
+
 type Slices struct {
 	Test1 []*string `json:"test1"`
 	Test2 []string  `json:"test2"`
@@ -166,6 +188,7 @@ type User struct {
 	Friends []*User    `json:"friends"`
 	Created time.Time  `json:"created"`
 	Updated *time.Time `json:"updated"`
+	Pets    []*Pet     `json:"pets"`
 }
 
 type ValidInput struct {

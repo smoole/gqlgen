@@ -10,6 +10,7 @@ import (
 
 	"github.com/99designs/gqlgen/codegen/config"
 	"github.com/stretchr/testify/require"
+	ast2 "github.com/vektah/gqlparser/v2/ast"
 )
 
 func TestFindField(t *testing.T) {
@@ -111,6 +112,84 @@ func TestEqualFieldName(t *testing.T) {
 		t.Run(tc.Name, func(t *testing.T) {
 			result := equalFieldName(tc.Source, tc.Target)
 			require.Equal(t, tc.Expected, result)
+		})
+	}
+}
+
+func TestField_CallArgs(t *testing.T) {
+	tt := []struct {
+		Name string
+		Field
+		Expected string
+	}{
+		{
+			Name: "Field with method that has context, and three args (string, interface, named interface)",
+			Field: Field{
+				MethodHasContext: true,
+				Args: []*FieldArgument{
+					{
+						ArgumentDefinition: &ast2.ArgumentDefinition{
+							Name: "test",
+						},
+						TypeReference: &config.TypeReference{
+							GO: (&types.Interface{}).Complete(),
+						},
+					},
+					{
+						ArgumentDefinition: &ast2.ArgumentDefinition{
+							Name: "test2",
+						},
+						TypeReference: &config.TypeReference{
+							GO: types.NewNamed(
+								types.NewTypeName(token.NoPos, nil, "TestInterface", nil),
+								(&types.Interface{}).Complete(),
+								nil,
+							),
+						},
+					},
+					{
+						ArgumentDefinition: &ast2.ArgumentDefinition{
+							Name: "test3",
+						},
+						TypeReference: &config.TypeReference{
+							GO: types.Typ[types.String],
+						},
+					},
+				},
+			},
+			Expected: `ctx, ` + `
+				func () interface{} {
+					if fc.Args["test"] == nil {
+						return nil
+					}
+					return fc.Args["test"].(interface{})
+				}(), fc.Args["test2"].(TestInterface), fc.Args["test3"].(string)`,
+		},
+		{
+			Name: "Resolver field that isn't root object with single int argument",
+			Field: Field{
+				Object: &Object{
+					Root: false,
+				},
+				IsResolver: true,
+				Args: []*FieldArgument{
+					{
+						ArgumentDefinition: &ast2.ArgumentDefinition{
+							Name: "test",
+						},
+						TypeReference: &config.TypeReference{
+							GO: types.Typ[types.Int],
+						},
+					},
+				},
+			},
+			Expected: `rctx, obj, fc.Args["test"].(int)`,
+		},
+	}
+
+	for _, tc := range tt {
+		t.Run(tc.Name, func(t *testing.T) {
+			require.Equal(t, tc.CallArgs(), tc.Expected)
 		})
 	}
 }

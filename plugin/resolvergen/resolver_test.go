@@ -2,7 +2,7 @@ package resolvergen
 
 import (
 	"fmt"
-	"io/ioutil"
+	"os"
 	"syscall"
 	"testing"
 
@@ -33,11 +33,12 @@ func TestLayoutSingleFile(t *testing.T) {
 func TestLayoutFollowSchema(t *testing.T) {
 	testFollowSchemaPersistence(t, "testdata/followschema")
 
-	b, err := ioutil.ReadFile("testdata/followschema/out/schema.resolvers.go")
+	b, err := os.ReadFile("testdata/followschema/out/schema.resolvers.go")
 	require.NoError(t, err)
 	source := string(b)
 
-	require.Contains(t, source, "// CustomerResolverType.Resolver implementation")
+	require.Contains(t, source, "(_ *customresolver.Resolver, err error)")
+	require.Contains(t, source, "// Named return values are supported.")
 	require.Contains(t, source, "// CustomerResolverType.Name implementation")
 	require.Contains(t, source, "// AUserHelperFunction implementation")
 }
@@ -45,7 +46,7 @@ func TestLayoutFollowSchema(t *testing.T) {
 func TestLayoutFollowSchemaWithCustomFilename(t *testing.T) {
 	testFollowSchemaPersistence(t, "testdata/filetemplate")
 
-	b, err := ioutil.ReadFile("testdata/filetemplate/out/schema.custom.go")
+	b, err := os.ReadFile("testdata/filetemplate/out/schema.custom.go")
 	require.NoError(t, err)
 	source := string(b)
 

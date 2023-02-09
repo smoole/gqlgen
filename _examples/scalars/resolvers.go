@@ -3,9 +3,9 @@
 package scalars
 
 import (
-	context "context"
+	"context"
 	"fmt"
-	time "time"
+	"time"
 
 	"github.com/99designs/gqlgen/_examples/scalars/external"
 	"github.com/99designs/gqlgen/_examples/scalars/model"
@@ -29,11 +29,22 @@ func (r *queryResolver) UserByTier(ctx context.Context, tier model.Tier, darkMod
 
 func (r *queryResolver) User(ctx context.Context, id external.ObjectID) (*model.User, error) {
 	return &model.User{
-		ID:      id,
-		Name:    fmt.Sprintf("Test User %d", id),
-		Created: time.Now(),
-		Address: model.Address{ID: 1, Location: &model.Point{X: 1, Y: 2}},
-		Tier:    model.TierC,
+		ID:              id,
+		Name:            fmt.Sprintf("Test User %d", id),
+		Created:         time.Now(),
+		Address:         model.Address{ID: 1, Location: &model.Point{X: 1, Y: 2}},
+		Tier:            model.TierC,
+		CarManufacturer: external.ManufacturerTesla,
+		IsLoginBanned:   true,
+		IsQueryBanned:   true,
+		Children:        3,
+		Cars:            5,
+		Weddings:        2,
+		SomeBytes:       []byte("abcdef"),
+		SomeOtherBytes:  []byte{97, 98, 99, 100, 101, 102},
+		SomeRunes:       []rune{'H', 'e', 'l', 'l', 'o', ' ', '世', '界'},
+		RemoteBytes:     external.ExternalBytes("fedcba"),
+		RemoteRunes:     external.ExternalRunes{'界', '世', ' ', 'H', 'e', 'l', 'l', 'o'},
 	}, nil
 }
 
@@ -50,18 +61,20 @@ func (r *queryResolver) Search(ctx context.Context, input *model.SearchArgs) ([]
 
 	return []*model.User{
 		{
-			ID:      1,
-			Name:    "Test User 1",
-			Created: created,
-			Address: model.Address{ID: 2, Location: &location},
-			Tier:    model.TierA,
+			ID:              1,
+			Name:            "Test User 1",
+			Created:         created,
+			Address:         model.Address{ID: 2, Location: &location},
+			Tier:            model.TierA,
+			CarManufacturer: external.ManufacturerHonda,
 		},
 		{
-			ID:      2,
-			Name:    "Test User 2",
-			Created: created,
-			Address: model.Address{ID: 1, Location: &location},
-			Tier:    model.TierC,
+			ID:              2,
+			Name:            "Test User 2",
+			Created:         created,
+			Address:         model.Address{ID: 1, Location: &location},
+			Tier:            model.TierC,
+			CarManufacturer: external.ManufacturerToyota,
 		},
 	}, nil
 }

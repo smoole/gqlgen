@@ -5,7 +5,9 @@ package followschema
 import (
 	"bytes"
 	"context"
+	"embed"
 	"errors"
+	"fmt"
 
 	"github.com/99designs/gqlgen/graphql"
 	"github.com/99designs/gqlgen/graphql/introspection"
@@ -36,6 +38,7 @@ type ResolverRoot interface {
 	Mutation() MutationResolver
 	OverlappingFields() OverlappingFieldsResolver
 	Panics() PanicsResolver
+	Pet() PetResolver
 	Primitive() PrimitiveResolver
 	PrimitiveString() PrimitiveStringResolver
 	Query() QueryResolver
@@ -43,6 +46,7 @@ type ResolverRoot interface {
 	User() UserResolver
 	WrappedMap() WrappedMapResolver
 	WrappedSlice() WrappedSliceResolver
+	FieldsOrderInput() FieldsOrderInputResolver
 }
 
 type DirectiveRoot struct {
@@ -94,6 +98,7 @@ type ComplexityRoot struct {
 
 	Cat struct {
 		CatBreed func(childComplexity int) int
+		Size     func(childComplexity int) int
 		Species  func(childComplexity int) int
 	}
 
@@ -138,6 +143,7 @@ type ComplexityRoot struct {
 
 	Dog struct {
 		DogBreed func(childComplexity int) int
+		Size     func(childComplexity int) int
 		Species  func(childComplexity int) int
 	}
 
@@ -175,6 +181,10 @@ type ComplexityRoot struct {
 		C func(childComplexity int) int
 		D func(childComplexity int) int
 		E func(childComplexity int) int
+	}
+
+	FieldsOrderPayload struct {
+		FirstFieldValue func(childComplexity int) int
 	}
 
 	ForcedResolver struct {
@@ -217,9 +227,10 @@ type ComplexityRoot struct {
 	}
 
 	Mutation struct {
-		DefaultInput    func(childComplexity int, input DefaultInput) int
-		UpdatePtrToPtr  func(childComplexity int, input UpdatePtrToPtrOuter) int
-		UpdateSomething func(childComplexity int, input SpecialInput) int
+		DefaultInput          func(childComplexity int, input DefaultInput) int
+		OverrideValueViaInput func(childComplexity int, input FieldsOrderInput) int
+		UpdatePtrToPtr        func(childComplexity int, input UpdatePtrToPtrOuter) int
+		UpdateSomething       func(childComplexity int, input SpecialInput) int
 	}
 
 	ObjectDirectives struct {
@@ -246,6 +257,11 @@ type ComplexityRoot struct {
 		ArgUnmarshal       func(childComplexity int, u []MarshalPanic) int
 		FieldFuncMarshal   func(childComplexity int, u []MarshalPanic) int
 		FieldScalarMarshal func(childComplexity int) int
+	}
+
+	Pet struct {
+		Friends func(childComplexity int, limit *int) int
+		ID      func(childComplexity int) int
 	}
 
 	Primitive struct {
@@ -292,6 +308,7 @@ type ComplexityRoot struct {
 		DirectiveObject                  func(childComplexity int) int
 		DirectiveObjectWithCustomGoModel func(childComplexity int) int
 		DirectiveUnimplemented           func(childComplexity int) int
+		Dog                              func(childComplexity int) int
 		EmbeddedCase1                    func(childComplexity int) int
 		EmbeddedCase2                    func(childComplexity int) int
 		EmbeddedCase3                    func(childComplexity int) int
@@ -335,6 +352,7 @@ type ComplexityRoot struct {
 		VOkCaseValue                     func(childComplexity int) int
 		Valid                            func(childComplexity int) int
 		ValidType                        func(childComplexity int) int
+		VariadicModel                    func(childComplexity int) int
 		WrappedMap                       func(childComplexity int) int
 		WrappedScalar                    func(childComplexity int) int
 		WrappedSlice                     func(childComplexity int) int
@@ -346,6 +364,11 @@ type ComplexityRoot struct {
 		Coordinates func(childComplexity int) int
 		Length      func(childComplexity int) int
 		Width       func(childComplexity int) int
+	}
+
+	Size struct {
+		Height func(childComplexity int) int
+		Weight func(childComplexity int) int
 	}
 
 	Slices struct {
@@ -360,6 +383,7 @@ type ComplexityRoot struct {
 		DirectiveDouble        func(childComplexity int) int
 		DirectiveNullableArg   func(childComplexity int, arg *int, arg2 *int, arg3 *string) int
 		DirectiveUnimplemented func(childComplexity int) int
+		ErrorRequired          func(childComplexity int) int
 		InitPayload            func(childComplexity int) int
 		Issue896b              func(childComplexity int) int
 		Updated                func(childComplexity int) int
@@ -369,6 +393,7 @@ type ComplexityRoot struct {
 		Created func(childComplexity int) int
 		Friends func(childComplexity int) int
 		ID      func(childComplexity int) int
+		Pets    func(childComplexity int, limit *int) int
 		Updated func(childComplexity int) int
 	}
 
@@ -385,6 +410,10 @@ type ComplexityRoot struct {
 		DifferentCaseOld   func(childComplexity int) int
 		ValidArgs          func(childComplexity int, breakArg string, defaultArg string, funcArg string, interfaceArg string, selectArg string, caseArg string, deferArg string, goArg string, mapArg string, structArg string, chanArg string, elseArg string, gotoArg string, packageArg string, switchArg string, constArg string, fallthroughArg string, ifArg string, rangeArg string, typeArg string, continueArg string, forArg string, importArg string, returnArg string, varArg string, _ string) int
 		ValidInputKeywords func(childComplexity int, input *ValidInput) int
+	}
+
+	VariadicModel struct {
+		Value func(childComplexity int, rank int) int
 	}
 
 	WrappedMap struct {
@@ -523,6 +552,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Cat.CatBreed(childComplexity), true
 
+	case "Cat.size":
+		if e.complexity.Cat.Size == nil {
+			break
+		}
+
+		return e.complexity.Cat.Size(childComplexity), true
+
 	case "Cat.species":
 		if e.complexity.Cat.Species == nil {
 			break
@@ -642,6 +678,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Dog.DogBreed(childComplexity), true
 
+	case "Dog.size":
+		if e.complexity.Dog.Size == nil {
+			break
+		}
+
+		return e.complexity.Dog.Size(childComplexity), true
+
 	case "Dog.species":
 		if e.complexity.Dog.Species == nil {
 			break
@@ -754,6 +797,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Errors.E(childComplexity), true
 
+	case "FieldsOrderPayload.firstFieldValue":
+		if e.complexity.FieldsOrderPayload.FirstFieldValue == nil {
+			break
+		}
+
+		return e.complexity.FieldsOrderPayload.FirstFieldValue(childComplexity), true
+
 	case "ForcedResolver.field":
 		if e.complexity.ForcedResolver.Field == nil {
 			break
@@ -849,6 +899,18 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.Mutation.DefaultInput(childComplexity, args["input"].(DefaultInput)), true
+
+	case "Mutation.overrideValueViaInput":
+		if e.complexity.Mutation.OverrideValueViaInput == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_overrideValueViaInput_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.OverrideValueViaInput(childComplexity, args["input"].(FieldsOrderInput)), true
 
 	case "Mutation.updatePtrToPtr":
 		if e.complexity.Mutation.UpdatePtrToPtr == nil {
@@ -960,6 +1022,25 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.Panics.FieldScalarMarshal(childComplexity), true
+
+	case "Pet.friends":
+		if e.complexity.Pet.Friends == nil {
+			break
+		}
+
+		args, err := ec.field_Pet_friends_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Pet.Friends(childComplexity, args["limit"].(*int)), true
+
+	case "Pet.id":
+		if e.complexity.Pet.ID == nil {
+			break
+		}
+
+		return e.complexity.Pet.ID(childComplexity), true
 
 	case "Primitive.squared":
 		if e.complexity.Primitive.Squared == nil {
@@ -1196,6 +1277,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.Query.DirectiveUnimplemented(childComplexity), true
+
+	case "Query.dog":
+		if e.complexity.Query.Dog == nil {
+			break
+		}
+
+		return e.complexity.Query.Dog(childComplexity), true
 
 	case "Query.embeddedCase1":
 		if e.complexity.Query.EmbeddedCase1 == nil {
@@ -1553,6 +1641,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Query.ValidType(childComplexity), true
 
+	case "Query.variadicModel":
+		if e.complexity.Query.VariadicModel == nil {
+			break
+		}
+
+		return e.complexity.Query.VariadicModel(childComplexity), true
+
 	case "Query.wrappedMap":
 		if e.complexity.Query.WrappedMap == nil {
 			break
@@ -1608,6 +1703,20 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.Rectangle.Width(childComplexity), true
+
+	case "Size.height":
+		if e.complexity.Size.Height == nil {
+			break
+		}
+
+		return e.complexity.Size.Height(childComplexity), true
+
+	case "Size.weight":
+		if e.complexity.Size.Weight == nil {
+			break
+		}
+
+		return e.complexity.Size.Weight(childComplexity), true
 
 	case "Slices.test1":
 		if e.complexity.Slices.Test1 == nil {
@@ -1675,6 +1784,13 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Subscription.DirectiveUnimplemented(childComplexity), true
 
+	case "Subscription.errorRequired":
+		if e.complexity.Subscription.ErrorRequired == nil {
+			break
+		}
+
+		return e.complexity.Subscription.ErrorRequired(childComplexity), true
+
 	case "Subscription.initPayload":
 		if e.complexity.Subscription.InitPayload == nil {
 			break
@@ -1716,6 +1832,18 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.User.ID(childComplexity), true
+
+	case "User.pets":
+		if e.complexity.User.Pets == nil {
+			break
+		}
+
+		args, err := ec.field_User_pets_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.User.Pets(childComplexity, args["limit"].(*int)), true
 
 	case "User.updated":
 		if e.complexity.User.Updated == nil {
@@ -1775,6 +1903,18 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 		}
 
 		return e.complexity.ValidType.ValidInputKeywords(childComplexity, args["input"].(*ValidInput)), true
+
+	case "VariadicModel.value":
+		if e.complexity.VariadicModel.Value == nil {
+			break
+		}
+
+		args, err := ec.field_VariadicModel_value_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.VariadicModel.Value(childComplexity, args["rank"].(int)), true
 
 	case "WrappedMap.get":
 		if e.complexity.WrappedMap.Get == nil {
@@ -1849,6 +1989,22 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 	rc := graphql.GetOperationContext(ctx)
 	ec := executionContext{rc, e}
+	inputUnmarshalMap := graphql.BuildUnmarshalerMap(
+		ec.unmarshalInputDefaultInput,
+		ec.unmarshalInputFieldsOrderInput,
+		ec.unmarshalInputInnerDirectives,
+		ec.unmarshalInputInnerInput,
+		ec.unmarshalInputInputDirectives,
+		ec.unmarshalInputInputWithEnumValue,
+		ec.unmarshalInputNestedInput,
+		ec.unmarshalInputNestedMapInput,
+		ec.unmarshalInputOuterInput,
+		ec.unmarshalInputRecursiveInputSlice,
+		ec.unmarshalInputSpecialInput,
+		ec.unmarshalInputUpdatePtrToPtrInner,
+		ec.unmarshalInputUpdatePtrToPtrOuter,
+		ec.unmarshalInputValidInput,
+	)
 	first := true
 
 	switch rc.Operation.Operation {
@@ -1858,6 +2014,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 				return nil
 			}
 			first = false
+			ctx = graphql.WithUnmarshalerMap(ctx, inputUnmarshalMap)
 			data := ec._Query(ctx, rc.Operation.SelectionSet)
 			var buf bytes.Buffer
 			data.MarshalGQL(&buf)
@@ -1872,6 +2029,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 				return nil
 			}
 			first = false
+			ctx = graphql.WithUnmarshalerMap(ctx, inputUnmarshalMap)
 			data := ec._Mutation(ctx, rc.Operation.SelectionSet)
 			var buf bytes.Buffer
 			data.MarshalGQL(&buf)
@@ -1886,7 +2044,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 		var buf bytes.Buffer
 		return func(ctx context.Context) *graphql.Response {
 			buf.Reset()
-			data := next()
+			data := next(ctx)
 
 			if data == nil {
 				return nil
@@ -1922,630 +2080,45 @@ func (ec *executionContext) introspectType(name string) (*introspection.Type, er
 	return introspection.WrapTypeFromDef(parsedSchema, parsedSchema.Types[name]), nil
 }
 
+//go:embed "builtinscalar.graphql" "complexity.graphql" "defaults.graphql" "directive.graphql" "embedded.graphql" "enum.graphql" "fields_order.graphql" "interfaces.graphql" "issue896.graphql" "loops.graphql" "maps.graphql" "mutation_with_custom_scalar.graphql" "nulls.graphql" "panics.graphql" "primitive_objects.graphql" "ptr_to_ptr_input.graphql" "ptr_to_slice.graphql" "scalar_context.graphql" "scalar_default.graphql" "schema.graphql" "slices.graphql" "typefallback.graphql" "useptr.graphql" "v-ok.graphql" "validtypes.graphql" "variadic.graphql" "weird_type_cases.graphql" "wrapped_type.graphql"
+var sourcesFS embed.FS
+
+func sourceData(filename string) string {
+	data, err := sourcesFS.ReadFile(filename)
+	if err != nil {
+		panic(fmt.Sprintf("codegen problem: %s not available", filename))
+	}
+	return string(data)
+}
+
 var sources = []*ast.Source{
-	{Name: "builtinscalar.graphql", Input: `
-"""
-Since gqlgen defines default implementation for a Map scalar, this tests that the builtin is _not_
-added to the TypeMap
-"""
-type Map {
-    id: ID!
-}
-`, BuiltIn: false},
-	{Name: "complexity.graphql", Input: `extend type Query {
-    overlapping: OverlappingFields
-}
-
-type OverlappingFields {
-  oneFoo: Int! @goField(name: "foo")
-  twoFoo: Int! @goField(name: "foo")
-  oldFoo: Int! @goField(name: "foo", forceResolver: true)
-  newFoo: Int!
-  new_foo: Int!
-}
-`, BuiltIn: false},
-	{Name: "defaults.graphql", Input: `extend type Query {
-    defaultParameters(
-        falsyBoolean: Boolean = false
-        truthyBoolean: Boolean = true
-    ): DefaultParametersMirror!
-}
-
-extend type Mutation {
-    defaultInput(input: DefaultInput!): DefaultParametersMirror!
-}
-
-input DefaultInput {
-    falsyBoolean: Boolean = false
-    truthyBoolean: Boolean = true
-}
-
-type DefaultParametersMirror {
-    falsyBoolean: Boolean
-    truthyBoolean: Boolean
-}
-`, BuiltIn: false},
-	{Name: "directive.graphql", Input: `directive @length(min: Int!, max: Int, message: String) on ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION | FIELD_DEFINITION
-directive @range(min: Int = 0, max: Int) on ARGUMENT_DEFINITION
-directive @custom on ARGUMENT_DEFINITION
-directive @logged(id: UUID!) on FIELD
-directive @toNull on ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION | FIELD_DEFINITION
-directive @directive1 on FIELD_DEFINITION
-directive @directive2 on FIELD_DEFINITION
-directive @directive3 on INPUT_OBJECT
-directive @unimplemented on FIELD_DEFINITION
-directive @order1(location: String!) repeatable on FIELD_DEFINITION | OBJECT
-directive @order2(location: String!) on OBJECT
-
-extend type Query {
-    directiveArg(arg: String! @length(min:1, max: 255, message: "invalid length")): String
-    directiveNullableArg(arg: Int @range(min:0), arg2: Int @range, arg3: String @toNull): String
-    directiveInputNullable(arg: InputDirectives): String
-    directiveInput(arg: InputDirectives!): String
-    directiveInputType(arg: InnerInput! @custom): String
-    directiveObject: ObjectDirectives @order1(location: "Query_field")
-    directiveObjectWithCustomGoModel: ObjectDirectivesWithCustomGoModel
-    directiveFieldDef(ret: String!): String! @length(min: 1, message: "not valid")
-    directiveField: String
-    directiveDouble: String @directive1 @directive2
-    directiveUnimplemented: String @unimplemented
-}
-
-extend type Subscription {
-    directiveArg(arg: String! @length(min:1, max: 255, message: "invalid length")): String
-    directiveNullableArg(arg: Int @range(min:0), arg2: Int @range, arg3: String @toNull): String
-    directiveDouble: String @directive1 @directive2
-    directiveUnimplemented: String @unimplemented
-}
-
-input InputDirectives @directive3 {
-    text: String! @length(min: 0, max: 7, message: "not valid")
-    nullableText: String @toNull
-    inner: InnerDirectives!
-    innerNullable: InnerDirectives
-    thirdParty: ThirdParty @length(min: 0, max: 7)
-}
-
-input InnerDirectives {
-    message: String! @length(min: 1, message: "not valid")
-}
-
-type ObjectDirectives @order1(location: "order1_1") @order1(location: "order1_2") @order2(location: "order2_1") {
-    text: String! @length(min: 0, max: 7, message: "not valid")
-    nullableText: String @toNull
-    order: [String!]!
-}
-
-type ObjectDirectivesWithCustomGoModel {
-    nullableText: String @toNull
-}
-`, BuiltIn: false},
-	{Name: "embedded.graphql", Input: `extend type Query {
-    embeddedCase1: EmbeddedCase1
-    embeddedCase2: EmbeddedCase2
-    embeddedCase3: EmbeddedCase3
-}
-
-type EmbeddedCase1 @goModel(model:"followschema.EmbeddedCase1") {
-    exportedEmbeddedPointerExportedMethod: String!
-}
-
-type EmbeddedCase2 @goModel(model:"followschema.EmbeddedCase2") {
-    unexportedEmbeddedPointerExportedMethod: String!
-}
-
-type EmbeddedCase3 @goModel(model:"followschema.EmbeddedCase3") {
-    unexportedEmbeddedInterfaceExportedMethod: String!
-}
-`, BuiltIn: false},
-	{Name: "enum.graphql", Input: `enum EnumTest {
-    OK
-    NG
-}
-
-input InputWithEnumValue {
-    enum: EnumTest!
-}
-
-extend type Query {
-    enumInInput(input: InputWithEnumValue): EnumTest!
-}
-`, BuiltIn: false},
-	{Name: "interfaces.graphql", Input: `extend type Query {
-    shapes: [Shape]
-    noShape: Shape @makeNil
-    node: Node!
-    noShapeTypedNil: Shape @makeTypedNil
-    animal: Animal @makeTypedNil
-    notAnInterface: BackedByInterface
-}
-
-interface Animal {
-    species: String!
-}
-
-type BackedByInterface {
-    id: String!
-    thisShouldBind: String!
-    thisShouldBindWithError: String!
-}
-
-type Dog implements Animal {
-    species: String!
-    dogBreed: String!
-}
-
-type Cat implements Animal {
-    species: String!
-    catBreed: String!
-}
-
-type Coordinates {
-    x: Float!
-    y: Float!
-}
-interface Shape {
-    area: Float
-    coordinates: Coordinates
-}
-
-type Circle implements Shape {
-    radius: Float
-    area: Float
-    coordinates: Coordinates
-}
-type Rectangle implements Shape {
-    length: Float
-    width: Float
-    area: Float
-    coordinates: Coordinates
-}
-union ShapeUnion @goModel(model: "followschema.ShapeUnion") = Circle | Rectangle
-
-directive @makeNil on FIELD_DEFINITION
-directive @makeTypedNil on FIELD_DEFINITION
-
-interface Node {
-    id: ID!
-    child: Node!
-}
-
-type ConcreteNodeA implements Node {
-    id: ID!
-    child: Node!
-    name: String!
-}
-
-" Implements the Node interface with another interface "
-type ConcreteNodeInterface implements Node {
-    id: ID!
-    child: Node!
-}
-`, BuiltIn: false},
-	{Name: "issue896.graphql", Input: `# This example should build stable output. If the file content starts
-# alternating nondeterministically between two outputs, then see
-# https://github.com/99designs/gqlgen/issues/896.
-
-extend schema {
-  query: Query
-  subscription: Subscription
-}
-
-type CheckIssue896 {id: Int}
-
-extend type Query {
-  issue896a: [CheckIssue896!] # Note the "!" or lack thereof.
-}
-
-extend type Subscription {
-  issue896b: [CheckIssue896] # Note the "!" or lack thereof.
-}
-`, BuiltIn: false},
-	{Name: "loops.graphql", Input: `type LoopA {
-    b: LoopB!
-}
-
-type LoopB {
-    a: LoopA!
-}
-`, BuiltIn: false},
-	{Name: "maps.graphql", Input: `extend type Query {
-    mapStringInterface(in: MapStringInterfaceInput): MapStringInterfaceType
-    mapNestedStringInterface(in: NestedMapInput): MapStringInterfaceType
-}
-
-type MapStringInterfaceType @goModel(model: "map[string]interface{}") {
-    a: String
-    b: Int
-}
-
-input MapStringInterfaceInput @goModel(model: "map[string]interface{}") {
-    a: String
-    b: Int
-}
-
-input NestedMapInput {
-    map: MapStringInterfaceInput
-}
-`, BuiltIn: false},
-	{Name: "mutation_with_custom_scalar.graphql", Input: `extend type Mutation {
-    updateSomething(input: SpecialInput!): String!
-}
-
-scalar Email
-
-input SpecialInput {
-    nesting: NestedInput!
-}
-
-input NestedInput {
-    field: Email!
-}
-`, BuiltIn: false},
-	{Name: "nulls.graphql", Input: `extend type Query {
-    errorBubble: Error
-    errorBubbleList: [Error!]
-    errorList: [Error]
-    errors: Errors
-    valid: String!
-}
-
-type Errors {
-    a: Error!
-    b: Error!
-    c: Error!
-    d: Error!
-    e: Error!
-}
-
-type Error {
-    id: ID!
-    errorOnNonRequiredField: String
-    errorOnRequiredField: String!
-    nilOnRequiredField: String!
-}
-`, BuiltIn: false},
-	{Name: "panics.graphql", Input: `extend type Query {
-    panics: Panics
-}
-
-type Panics {
-    fieldScalarMarshal: [MarshalPanic!]!
-    fieldFuncMarshal(u: [MarshalPanic!]!): [MarshalPanic!]!
-    argUnmarshal(u: [MarshalPanic!]!): Boolean!
-
-}
-
-scalar MarshalPanic
-`, BuiltIn: false},
-	{Name: "primitive_objects.graphql", Input: `extend type Query {
-    primitiveObject: [Primitive!]!
-    primitiveStringObject: [PrimitiveString!]!
-}
-
-type Primitive {
-    value: Int!
-    squared: Int!
-}
-
-type PrimitiveString {
-    value: String!
-    doubled: String!
-    len: Int!
-}
-`, BuiltIn: false},
-	{Name: "ptr_to_ptr_input.graphql", Input: `type PtrToPtrOuter {
-    name: String!
-    inner: PtrToPtrInner
-    stupidInner: PtrToPtrInner
-}
-
-type PtrToPtrInner {
-    key: String!
-    value: String!
-}
-
-input UpdatePtrToPtrOuter {
-    name: String
-    inner: UpdatePtrToPtrInner
-    stupidInner: UpdatePtrToPtrInner
-}
-
-input UpdatePtrToPtrInner {
-    key: String
-    value: String
-}
-
-extend type Mutation {
-    updatePtrToPtr(input: UpdatePtrToPtrOuter!): PtrToPtrOuter!
-}
-`, BuiltIn: false},
-	{Name: "ptr_to_slice.graphql", Input: `type PtrToSliceContainer {
-    ptrToSlice: [String!]
-}
-
-extend type Query {
-    ptrToSliceContainer: PtrToSliceContainer!
-}
-`, BuiltIn: false},
-	{Name: "scalar_context.graphql", Input: `extend type Query {
-    infinity: Float!
-    stringFromContextInterface: StringFromContextInterface!
-    stringFromContextFunction: StringFromContextFunction!
-}
-
-scalar StringFromContextInterface
-scalar StringFromContextFunction
-`, BuiltIn: false},
-	{Name: "scalar_default.graphql", Input: `extend type Query {
-    defaultScalar(arg: DefaultScalarImplementation! = "default"): DefaultScalarImplementation!
-}
-
-""" This doesnt have an implementation in the typemap, so it should act like a string """
-scalar DefaultScalarImplementation
-
-type EmbeddedDefaultScalar {
-    value: DefaultScalarImplementation
-}
-`, BuiltIn: false},
-	{Name: "schema.graphql", Input: `directive @goModel(
-    model: String
-    models: [String!]
-) on OBJECT | INPUT_OBJECT | SCALAR | ENUM | INTERFACE | UNION
-directive @goField(
-    forceResolver: Boolean
-    name: String
-) on INPUT_FIELD_DEFINITION | FIELD_DEFINITION
-
-type Query {
-    invalidIdentifier: InvalidIdentifier
-    collision: It
-    mapInput(input: Changes): Boolean
-    recursive(input: RecursiveInputSlice): Boolean
-    nestedInputs(input: [[OuterInput]] = [[{ inner: { id: 1 } }]]): Boolean
-    nestedOutputs: [[OuterObject]]
-    modelMethods: ModelMethods
-    user(id: Int!): User!
-    nullableArg(arg: Int = 123): String
-    inputSlice(arg: [String!]!): Boolean!
-    inputNullableSlice(arg: [String!]): Boolean!
-    shapeUnion: ShapeUnion!
-    autobind: Autobind
-    deprecatedField: String! @deprecated(reason: "test deprecated directive")
-}
-
-type Subscription {
-    updated: String!
-    initPayload: String!
-}
-
-type User {
-    id: Int!
-    friends: [User!]! @goField(forceResolver: true)
-    created: Time!
-    updated: Time
-}
-
-type Autobind {
-    int: Int!
-    int32: Int!
-    int64: Int!
-
-    idStr: ID!
-    idInt: ID!
-}
-
-type ModelMethods {
-    resolverField: Boolean!
-    noContext: Boolean!
-    withContext: Boolean!
-}
-
-type InvalidIdentifier {
-    id: Int!
-}
-
-type It {
-    id: ID!
-}
-
-input Changes @goModel(model: "map[string]interface{}") {
-    a: Int
-    b: Int
-}
-
-input RecursiveInputSlice {
-    self: [RecursiveInputSlice!]
-}
-
-input InnerInput {
-    id: Int!
-}
-
-input OuterInput {
-    inner: InnerInput!
-}
-
-scalar ThirdParty @goModel(model:"followschema.ThirdParty")
-
-type OuterObject {
-    inner: InnerObject!
-}
-
-type InnerObject {
-    id: Int!
-}
-
-type ForcedResolver {
-    field: Circle @goField(forceResolver: true)
-}
-
-type EmbeddedPointer @goModel(model:"followschema.EmbeddedPointerModel") {
-    ID: String
-    Title: String
-}
-
-scalar UUID
-
-enum Status {
-    OK
-    ERROR
-}
-
-scalar Time
-`, BuiltIn: false},
-	{Name: "slices.graphql", Input: `extend type Query {
-    slices: Slices
-    scalarSlice: Bytes!
-}
-
-type Slices {
-    test1: [String]
-    test2: [String!]
-    test3: [String]!
-    test4: [String!]!
-}
-
-scalar Bytes
-`, BuiltIn: false},
-	{Name: "typefallback.graphql", Input: `extend type Query {
-    fallback(arg: FallbackToStringEncoding!): FallbackToStringEncoding!
-}
-
-enum FallbackToStringEncoding {
-    A
-    B
-    C
-}
-`, BuiltIn: false},
-	{Name: "useptr.graphql", Input: `type A {
-    id: ID!
-}
-
-type B {
-    id: ID!
-}
-
-union TestUnion = A | B
-
-extend type Query {
-    optionalUnion: TestUnion
-}
-`, BuiltIn: false},
-	{Name: "v-ok.graphql", Input: `extend type Query {
-    vOkCaseValue: VOkCaseValue
-    vOkCaseNil: VOkCaseNil
-}
-
-type VOkCaseValue @goModel(model:"followschema.VOkCaseValue") {
-  value: String
-}
-
-type VOkCaseNil @goModel(model:"followschema.VOkCaseNil") {
-  value: String
-}
-`, BuiltIn: false},
-	{Name: "validtypes.graphql", Input: `extend type Query {
-    validType: ValidType
-}
-
-""" These things are all valid, but without care generate invalid go code """
-type ValidType {
-    differentCase: String!
-    different_case: String! @goField(name:"DifferentCaseOld")
-    validInputKeywords(input: ValidInput): Boolean!
-    validArgs(
-        break:       String!,
-        default:     String!,
-        func:        String!,
-        interface:   String!,
-        select:      String!,
-        case:        String!,
-        defer:       String!,
-        go:          String!,
-        map:         String!,
-        struct:      String!,
-        chan:        String!,
-        else:        String!,
-        goto:        String!,
-        package:     String!,
-        switch:      String!,
-        const:       String!,
-        fallthrough: String!,
-        if:          String!,
-        range:       String!,
-        type:        String!,
-        continue:    String!,
-        for:         String!,
-        import:      String!,
-        return:      String!,
-        var:         String!,
-        _:           String!,
-    ): Boolean!
-}
-
-input ValidInput {
-    break:       String!
-    default:     String!
-    func:        String!
-    interface:   String!
-    select:      String!
-    case:        String!
-    defer:       String!
-    go:          String!
-    map:         String!
-    struct:      String!
-    chan:        String!
-    else:        String!
-    goto:        String!
-    package:     String!
-    switch:      String!
-    const:       String!
-    fallthrough: String!
-    if:          String!
-    range:       String!
-    type:        String!
-    continue:    String!
-    for:         String!
-    import:      String!
-    return:      String!
-    var:         String!
-    _:           String! @goField(name: "Underscore")
-}
-
-# see https://github.com/99designs/gqlgen/issues/694
-type Content_User {
-  foo: String
-}
-
-type Content_Post {
-  foo: String
-}
-
-union Content_Child = Content_User | Content_Post
-`, BuiltIn: false},
-	{Name: "weird_type_cases.graphql", Input: `# regression test for https://github.com/99designs/gqlgen/issues/583
-
-type asdfIt { id: ID! }
-type iIt { id: ID! }
-type AIt { id: ID! }
-type XXIt { id: ID! }
-type AbIt { id: ID! }
-type XxIt { id: ID! }
-`, BuiltIn: false},
-	{Name: "wrapped_type.graphql", Input: `# regression test for https://github.com/99designs/gqlgen/issues/721
-
-extend type Query {
-    wrappedStruct: WrappedStruct!
-    wrappedScalar: WrappedScalar!
-    wrappedMap: WrappedMap!
-    wrappedSlice: WrappedSlice!
-}
-
-type WrappedStruct { name: WrappedScalar!, desc: WrappedScalar }
-scalar WrappedScalar
-type WrappedMap { get(key: String!): String! }
-type WrappedSlice { get(idx: Int!): String! }
-`, BuiltIn: false},
+	{Name: "builtinscalar.graphql", Input: sourceData("builtinscalar.graphql"), BuiltIn: false},
+	{Name: "complexity.graphql", Input: sourceData("complexity.graphql"), BuiltIn: false},
+	{Name: "defaults.graphql", Input: sourceData("defaults.graphql"), BuiltIn: false},
+	{Name: "directive.graphql", Input: sourceData("directive.graphql"), BuiltIn: false},
+	{Name: "embedded.graphql", Input: sourceData("embedded.graphql"), BuiltIn: false},
+	{Name: "enum.graphql", Input: sourceData("enum.graphql"), BuiltIn: false},
+	{Name: "fields_order.graphql", Input: sourceData("fields_order.graphql"), BuiltIn: false},
+	{Name: "interfaces.graphql", Input: sourceData("interfaces.graphql"), BuiltIn: false},
+	{Name: "issue896.graphql", Input: sourceData("issue896.graphql"), BuiltIn: false},
+	{Name: "loops.graphql", Input: sourceData("loops.graphql"), BuiltIn: false},
+	{Name: "maps.graphql", Input: sourceData("maps.graphql"), BuiltIn: false},
+	{Name: "mutation_with_custom_scalar.graphql", Input: sourceData("mutation_with_custom_scalar.graphql"), BuiltIn: false},
+	{Name: "nulls.graphql", Input: sourceData("nulls.graphql"), BuiltIn: false},
+	{Name: "panics.graphql", Input: sourceData("panics.graphql"), BuiltIn: false},
+	{Name: "primitive_objects.graphql", Input: sourceData("primitive_objects.graphql"), BuiltIn: false},
+	{Name: "ptr_to_ptr_input.graphql", Input: sourceData("ptr_to_ptr_input.graphql"), BuiltIn: false},
+	{Name: "ptr_to_slice.graphql", Input: sourceData("ptr_to_slice.graphql"), BuiltIn: false},
+	{Name: "scalar_context.graphql", Input: sourceData("scalar_context.graphql"), BuiltIn: false},
+	{Name: "scalar_default.graphql", Input: sourceData("scalar_default.graphql"), BuiltIn: false},
+	{Name: "schema.graphql", Input: sourceData("schema.graphql"), BuiltIn: false},
+	{Name: "slices.graphql", Input: sourceData("slices.graphql"), BuiltIn: false},
+	{Name: "typefallback.graphql", Input: sourceData("typefallback.graphql"), BuiltIn: false},
+	{Name: "useptr.graphql", Input: sourceData("useptr.graphql"), BuiltIn: false},
+	{Name: "v-ok.graphql", Input: sourceData("v-ok.graphql"), BuiltIn: false},
+	{Name: "validtypes.graphql", Input: sourceData("validtypes.graphql"), BuiltIn: false},
+	{Name: "variadic.graphql", Input: sourceData("variadic.graphql"), BuiltIn: false},
+	{Name: "weird_type_cases.graphql", Input: sourceData("weird_type_cases.graphql"), BuiltIn: false},
+	{Name: "wrapped_type.graphql", Input: sourceData("wrapped_type.graphql"), BuiltIn: false},
 }
 var parsedSchema = gqlparser.MustLoadSchema(sources...)
